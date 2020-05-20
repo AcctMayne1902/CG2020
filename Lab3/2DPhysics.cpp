@@ -1,6 +1,8 @@
 #include "2DPhysics.h"
 
 #include <cstring>
+#include <cmath>
+using std::signbit;
 
 PhysicsObject::PhysicsObject(PhysicsEngine* engine, unsigned identification_mask, unsigned collision_mask) : engine(engine), identification_mask(identification_mask), collision_mask(collision_mask){}
 void PhysicsObject::engine_register(Box2D box, C2 speed){engine->add(this, box, speed);}
@@ -99,7 +101,7 @@ bool CheckSpeedMultiplier(double m, Box2D a, Box2D b, C2d a_speed, C2d b_speed){
 
 
 void PhysicsEngine::process(PhysicsObject* obj){
-	InternalPhysicsObject& iobj = *obj->internal_object;
+	/*InternalPhysicsObject& iobj = *obj->internal_object;
 	unsigned collision_mask = iobj.collision_mask;
 
 	double distance_to_collision = 1.f;
@@ -137,4 +139,13 @@ void PhysicsEngine::process(PhysicsObject* obj){
 			}
 		}
 	}
+
+	//InternalPhysicsObject& collided = 
+
+	if(distance_to_collision == 1.f){
+		//C2d speed1
+		this->position += this->speed;
+		this->box.topright += this->speed;
+		this->box.bottomleft += this->speed;
+	}*/
 }

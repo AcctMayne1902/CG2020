@@ -15,6 +15,7 @@ struct C2{
 	};
 
 	float dot(C2& o);
+	float normalize();
 	C2& operator+=(const C2& o);
 	C2& operator*=(const C2& o);
 	C2& operator*=(const float& o);

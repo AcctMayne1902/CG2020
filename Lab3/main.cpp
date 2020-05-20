@@ -25,7 +25,13 @@ void renderBox2D(Box2D box, C3 color){
 //Box2D collision_test_box = {{0, 0}, {5, 5}};
 
 	Game gam = Game();
+	bool wants_to_spawn_projectile = false;
 	bool axis = true;
+
+	struct{
+		unsigned amount;
+		Game::Projectile arr[256] = {};
+	}projectiles_arr;
 
 #include <vector>
 
@@ -278,8 +284,14 @@ void keyboard_special(int key, int x, int y){
 
 void mouse(int button, int state, int x, int y){
 
+	if(button == GLUT_LEFT_BUTTON && state == GLUT_DOWN){
+		wants_to_spawn_projectile = true;
+	}
+
 	mouse_x = x; 
 	mouse_y = y;
+
+
 }
 
 
@@ -288,12 +300,18 @@ void mouse(int button, int state, int x, int y){
 //<-------------------------------------------------------------------------------------------------------------------------------------------------------------->
 
 void mouse_move(int x, int y){
-	mouse_move_x += (x - mouse_x)/2;
-	mouse_move_y += (y - mouse_y)/2;
+	//mouse_move_x += (x - mouse_x)/2;//KEEP, TURNS CAMERA
+	//mouse_move_y += (y - mouse_y)/2;//KEEP, TURNS CAMERA
 	mouse_x = x; 
 	mouse_y = y;
 }
 
+int mouse_x_passive = 0;
+int mouse_y_passive = 0;
+void mouse_move_passive(int x, int y){
+	mouse_x_passive = x;
+	mouse_y_passive = y;
+}
 
 
 
@@ -410,7 +428,7 @@ void display(void){
 
 	glMatrixMode(GL_PROJECTION);
 
-	curr_view->position = {gam.player.position.x, gam.player.position.y, 20};
+	curr_view->position = {gam.player.head.x, gam.player.head.y, 40};
 	curr_view->ApplyGL();/////////////////////////////////////////////////////////////////////////////////////////////////VIEW MATRIX
 
 
@@ -448,7 +466,22 @@ void display(void){
 
 	bool collides = false;
 
-	glBegin(GL_TRIANGLES);		
+	glBegin(GL_TRIANGLES);
+
+	for (unsigned i = 0; i < projectiles_arr.amount; ++i)renderBox2D(projectiles_arr.arr[i].box, {1.f-(projectiles_arr.arr[i].lifetime/projectile_lifetime), 0, 1});
+
+
+	Box2D mouse_box = {
+		{gam.player.head.x + gam.mwp.vec.x*5 - 0.5f, gam.player.head.y + gam.mwp.vec.y*5 - 0.5f}
+		, 
+		{gam.player.head.x + gam.mwp.vec.x*5 + 0.5f, gam.player.head.y + gam.mwp.vec.y*5 + 0.5f}
+	};
+	renderBox2D(mouse_box, {1, 0, 0});
+
+	for (int i = 0; i < number_of_targets; ++i){
+		float bw_clr = 1.f-(gam.targets[i].lifetime / gam.targets[i].time_to_live);
+		renderBox2D(gam.targets[i].box, {bw_clr, bw_clr, bw_clr});
+	}
 
 		//for (int i = 0; i < amount_map_boxes; ++i)	{
 		//	renderBox2D(map_boxes[i], {float(i)/8.f, 0, 1});
@@ -557,7 +590,11 @@ DWORD WINAPI LogicThread(LPVOID param){
         after_sleep = std::chrono::system_clock::now();
         std::chrono::duration<double, std::milli> sleep_time = after_sleep - tick_start;
 
-        //codaz
+        //////////////////////////////////////////////////////////////////////////////////// GAMECODE
+
+      
+
+        //calculate player position
 		gam.player.speed.y -= gravity;
         if(t){gam.player.speed.y += jump_speed; t = false;}
         
@@ -568,7 +605,100 @@ DWORD WINAPI LogicThread(LPVOID param){
         gam.player.BeforeTick();
 		gam.player.Tick();
 		gam.player.AfterTick();
-		//gam.player.speed.x = 0;
+
+		//calculate aim vector
+  		gam.mwp.calculate(&gam.player, width, height, mouse_x_passive, mouse_y_passive);
+
+  		//spawn a projectile if so is desired
+        if(wants_to_spawn_projectile){
+        	wants_to_spawn_projectile = false;
+        	gam.SpawnProjectile();
+        }
+
+        //set target time
+        for (int i = 0; i < number_of_targets; ++i){
+        	gam.targets[i].lifetime += 1.f/tickrate;
+        	if(gam.targets[i].lifetime > gam.targets[i].time_to_live){
+        		printf("you lost because a target ran out of time.\n");
+        		printf("Your final score was %u!\n", gam.score);
+        		gam.Reset();
+        		goto tick_finish;
+        	}
+		}
+
+        //iterate through projectiles and act according to circumstances
+		projectiles_arr.amount = 0;
+		for(Game::Projectile* projectile = gam.projectile_list; projectile;){
+			projectile->lifetime += 1.f/tickrate;
+
+
+			if(projectile->lifetime > projectile_lifetime){
+				
+
+				Game::Projectile* projectile_c = projectile;
+
+				//set the projectile pointer to the current's next
+				projectile = projectile_c->next;
+
+				gam.DespawnProjectile(projectile_c);
+
+			}else{
+
+				projectile->speed.y -= gravity;
+				projectile->BeforeTick();
+				projectile->Tick();
+				projectile->AfterTick();
+
+				projectiles_arr.arr[projectiles_arr.amount++] = *projectile;
+
+				for (int i = 0; i < number_of_targets; ++i){
+					if(projectile->box.collides(gam.targets[i].box)){
+						printf("target hit! score is now %u\n", ++gam.score);
+						gam.difficulty -= 0.1;
+						gam.ReplaceTarget(&gam.targets[i]);
+						if(gam.difficulty == 0){
+							printf(
+								"///////////////////////////////////////\n"
+								"////////////////VICTORY////////////////\n"
+								"///////////////////////////////////////\n"
+								"   this should probably be close to    \n"
+								"        impossible mate so big         \n"
+								"     c o n g r a t u l a t i o n s     \n"
+								"///////////////////////////////////////\n"
+							);
+							gam.Reset();
+							goto tick_finish;
+						}
+					}
+				}
+
+				if(projectile->lifetime > 0.5f && projectile->box.collides(gam.player.box)){
+					printf("You were hit by your projectile! You now have %u Health!\n", --gam.health);
+
+					Game::Projectile* projectile_c = projectile;
+					projectile = projectile->next;
+					gam.DespawnProjectile(projectile_c);
+					
+					if(!gam.health){
+		        		printf("You lost because you ran out of health!\n");
+		        		printf("Your final score was %u!\n", gam.score);
+		        		gam.Reset();
+		        		goto tick_finish;
+					}
+
+					continue;
+				
+				}
+
+				projectile = projectile->next;
+			}
+		}
+
+		tick_finish:;
+
+
+        //printf("%f, %f\n", gam.mwp.vec.x, gam.mwp.vec.y);
+
         //printf("Time: %f - %f\n", (work_time + sleep_time).count(), (work_time).count());
 	}
 	return 0;
@@ -579,87 +709,24 @@ DWORD WINAPI LogicThread(LPVOID param){
 #include <cstdlib>
 int main(int argc, char** argv){
 
+	gam.Reset();
 
-//#define A 0.2063387632369995100000000000000f
-//#define B 0.7307806611061096200000000000000f
-//	
-//
-//	float a = A;
-//	float b = B;
-//
-//	float floatie1 = A + (B * ((A)/(-B)));
-//	float floatie2 = a + (b * ((a)/(-b)));
-//	printf("%.40f  :  ", floatie1);
-//	printfloat_bin(floatie1);
-//	printf("%.40f", floatie2);
-//	printfloat_bin(floatie2);
-//
-//	return 0;
+	//gam.player.box = {{0, 0}, {2, 2}};
+	//gam.player.box = {{9.161062, 4.8924612998962402000000000000000000000000}, {2+9.161062, 2+4.8924612998962402000000000000000000000000}};//(3.281250, 0.988575458526611330), (0.000000, -1.255390167236328100)
+	//gam.player.position = {(gam.player.box.bottomleft.x + gam.player.box.topright.x) / 2.f, gam.player.box.bottomleft.y};
+	//gam.player.speed = {0, 0};//1.f/4.f};
+	//gam.player.airborne = false;
 
+	//gam.ResetTargets();
+	//for (int i = 0; i < number_of_targets; ++i){
+	//	printf("%f, %f\n", gam.targets[i].position.x, gam.targets[i].position.y);
+	//}
 
+	/*Game::Projectile* newproj = gam.projectile_list = new Game::Projectile();
+	newproj->box = {{10, 5}, {11, 6}};
+	newproj->position = {10.5, 5.5};
+	newproj->speed = {0.2, 0.2};*/
 
-
-	//float s1 = (a)/(-b);
-	//float s2 = b*s1;
-	//float floatie2 = a + s2;
-
-
-
-//	float a = A;
-//	float b = B;
-//
-//	//float floatie1 = A + (B * ((A)/(-B)));
-//
-//	float step1 = a/(-b);
-//	//printf("%f\n", step1);
-//	float step2 = b*step1;
-//	//printf("%f\n", step2);
-//
-//	float floatie2 = a + step2;
-//	printf("%.40f\n", floatie2);
-
-
-	/*double a_ = A;
-	double b_ = B;
-
-	//float floatie1 = A + (B * ((A)/(-B)));
-
-	double step1_ = a_/(-b_);
-	printf("%f\n", step1_);
-	double step2_ = b_*step1_;
-	printf("%f\n", step2_);
-
-	floatie2 = a_ + step2_;
-	printf("%.40f\n", floatie2);*/
-/*
-
-	{
-		unsigned number = *(unsigned*)(&floatie);
-		for (int i = 32; i != 0; --i){
-			printf("%d", (number >> i-1) & 1);
-		}printf("\n\n");
-	}
-*/
-//printf("\n\n\n\n\n\n\n\n\n\n\n\n");
-
-
-
-	gam.player.box = {{0, 0}, {2, 2}};
-//	gam.player.box = {{3.281250, 5.986723}, {2+3.281250, 2+5.986723}};
-//	gam.player.box = {{3.281250, 0.206338763236999510}, {2+3.281250, 2+0.206338763236999510}};//(3.281250, 0.206338763236999510), (0.000000, -0.730780661106109620)
-	gam.player.box = {{9.161062, 4.8924612998962402000000000000000000000000}, {2+9.161062, 2+4.8924612998962402000000000000000000000000}};//(3.281250, 0.988575458526611330), (0.000000, -1.255390167236328100)
-	gam.player.position = {(gam.player.box.bottomleft.x + gam.player.box.topright.x) / 2.f, gam.player.box.bottomleft.y};
-	gam.player.speed = {0, 0};//1.f/4.f};
-//	gam.player.speed = {0.000000, -0.270937};
-//	gam.player.speed = {0.000000, -0.730780661106109620};
-//	gam.player.speed = {-0.468750, -0.421523422002792360};//(9.161062, 4.8924612998962402000000000000000000000000), (-0.468750, -0.421523422002792360)
-	gam.player.airborne = false;
-//
-//	gam.player.Tick();gam.player.Tick();gam.player.Tick();
-//
-//	return 0;
-
-	//printf("AE %f\n", WhenWillBoxesCollide({{-1,1.f/7.f}, {1,2}}, {{-1,-1}, {1,1.f/11.f}}, {0,-1.f/12.f}, {0,1.f/3.f}).y);
 
 	glutInit(&argc, argv);
     glutSetOption(GLUT_MULTISAMPLE, 8);
@@ -673,6 +740,7 @@ int main(int argc, char** argv){
     glutReshapeFunc(reshape);
     glutMouseFunc(mouse);
     glutMotionFunc(mouse_move); 
+    glutPassiveMotionFunc(mouse_move_passive);
     glutIgnoreKeyRepeat(true);
     glutKeyboardFunc(keyboard);
     glutKeyboardUpFunc(keyboardup);

@@ -1,6 +1,7 @@
 #include "GraphicsStructs.h"
 
 #include <GL/glut.h>
+#include <cmath>
 
 ////////////////////////////////////////////////////////////C2
 C2::C2(){}
@@ -10,6 +11,11 @@ float C2::dot(C2& o){
 	return this->x*o.x + this->y*o.y;
 }
 
+float C2::normalize(){
+	float mag = sqrt(this->x*this->x + this->y*this->y);
+	this->x /= mag;
+	this->y /= mag;
+}
 
 C2& C2::operator+=(const C2& o){
 	this->x += o.x;
